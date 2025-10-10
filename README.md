@@ -58,11 +58,6 @@ Each processed CSV contains (header included by default):
 
 Note: The script currently prompts for `Building` at runtime and ignores the `--building` flag if provided.
 
-## Tips & Troubleshooting
-- Excel lock: If an output file is open in Excel, the script tries an alternate filename with `_new` appended. Close the file and re-run if needed.
-- Encoding: Output uses UTF-8 with BOM so units like `°C` render correctly in Excel.
-- Git hygiene: CSVs in `raw/` and `processed/` are ignored by git; folders are kept with `.gitkeep`.
-
 ## File Reference
 - `main.py:1` — entry point and processing logic
 
