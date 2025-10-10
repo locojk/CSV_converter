@@ -1,0 +1,10 @@
+# Virtual environments
+.venv/
+venv/
+
+# Ignore CSV files in data folders but keep the folders
+raw/*.csv
+!raw/.gitkeep
+processed/*.csv
+!processed/.gitkeep
+
