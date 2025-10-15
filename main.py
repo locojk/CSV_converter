@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 import argparse
 from typing import Iterable, Dict, List, Tuple
+import sys
 
 
 def last_token_after_dot(s: str) -> str:
@@ -34,6 +35,20 @@ def _normalize_mojibake(s: str) -> str:
     # If any lone 'Â' remain, drop them
     s = s.replace("Â", "")
     return s
+
+def _clean_ws(s: str) -> str:
+    """Normalize mojibake, collapse whitespace, trim ends."""
+    if s is None:
+        return ""
+    s = _normalize_mojibake(str(s))
+    # Collapse any runs of whitespace to single spaces, then trim
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def _sanitize_cell(s: str, empty_placeholder: str) -> str:
+    """Clean whitespace and replace empties with a placeholder."""
+    cleaned = _clean_ws(s)
+    return cleaned if cleaned != "" else empty_placeholder
 
 def extract_dev_number_from_ref(ref: str) -> str:
     """
@@ -80,8 +95,8 @@ def read_rows(input_path: Path, encoding: str = "utf-8", delimiter: str = ","):
         for row in reader:
             if len(row) < 6:
                 continue
-            obj_ref_full = row[0]
-            name = row[4].strip()
+            obj_ref_full = _clean_ws(row[0])
+            name = _clean_ws(row[4])
             value_field = row[5].strip()
 
             obj_ref = last_token_after_dot(obj_ref_full)  # e.g., AV28
@@ -105,7 +120,15 @@ def sort_rows(rows: Iterable[tuple]) -> list:
     rows.sort(key=s_key)
     return rows
 
-def write_csv(rows: Iterable[tuple], output_path: Path, building: str, dev_name_override: str, write_header: bool = True):
+def write_csv(
+    rows: Iterable[tuple],
+    output_path: Path,
+    building: str,
+    dev_name_override: str,
+    *,
+    write_header: bool = True,
+    empty_placeholder: str = "",
+):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     # Write with UTF-8 BOM for better Excel compatibility (avoids displaying 'Â°')
     with output_path.open("w", encoding="utf-8-sig", newline="") as out:
@@ -113,10 +136,28 @@ def write_csv(rows: Iterable[tuple], output_path: Path, building: str, dev_name_
         if write_header:
             writer.writerow(["Object_Type", "Object_Number", "Name", "Units", "Building", "DEV_Number", "DEV_Name"])
         for (obj_type, obj_num, name, units, dev_number, dev_name) in rows:
-            # Fill Building and DEV_Name from user input
-            writer.writerow([obj_type, obj_num, name, units, building, dev_number, dev_name_override])
+            # Sanitize each field; fill Building and DEV_Name from user input
+            out_row = [
+                _sanitize_cell(obj_type, empty_placeholder),
+                _sanitize_cell(obj_num, empty_placeholder),
+                _sanitize_cell(name, empty_placeholder),
+                _sanitize_cell(units, empty_placeholder),
+                _sanitize_cell(building, empty_placeholder),
+                _sanitize_cell(dev_number, empty_placeholder),
+                _sanitize_cell(dev_name_override, empty_placeholder),
+            ]
+            writer.writerow(out_row)
 
-def process_all_raw(raw_dir: Path, processed_dir: Path, *, encoding: str, delimiter: str, building: str, write_header: bool):
+def process_all_raw(
+    raw_dir: Path,
+    processed_dir: Path,
+    *,
+    encoding: str,
+    delimiter: str,
+    building: str,
+    write_header: bool,
+    empty_placeholder: str,
+):
     csv_files = sorted([p for p in raw_dir.glob("**/*") if p.is_file() and p.suffix.lower() == ".csv"])
     if not csv_files:
         print(f"No CSV files found in '{raw_dir}'. Nothing to do.")
@@ -140,19 +181,33 @@ def process_all_raw(raw_dir: Path, processed_dir: Path, *, encoding: str, delimi
                 # Prompt user for device name for this output file
                 while True:
                     src_display = str(src.relative_to(raw_dir)) if src.is_relative_to(raw_dir) else src.name
-                    dev_name_input = input(
-                        f"Enter Device Name for {key} (source: {src_display}): "
-                    ).strip()
+                    dev_name_input = _clean_ws(
+                        input(f"Enter Device Name for {key} (source: {src_display}): ")
+                    )
                     if dev_name_input:
                         break
                     print("Device Name cannot be empty. Please enter a value.")
-                write_csv(g_rows, dst, building, dev_name_input, write_header=write_header)
+                write_csv(
+                    g_rows,
+                    dst,
+                    building,
+                    dev_name_input,
+                    write_header=write_header,
+                    empty_placeholder=empty_placeholder,
+                )
                 print(f"Converted: {src} -> {dst}")
             except PermissionError:
                 alt = dst.with_name(f"{dst.stem}_new{dst.suffix}")
                 try:
                     # Try alternate filename with same provided device name
-                    write_csv(g_rows, alt, building, dev_name_input, write_header=write_header)
+                    write_csv(
+                        g_rows,
+                        alt,
+                        building,
+                        dev_name_input,
+                        write_header=write_header,
+                        empty_placeholder=empty_placeholder,
+                    )
                     print(
                         f"WARNING: Could not write {dst} (locked?). Wrote to {alt} instead."
                     )
@@ -177,6 +232,11 @@ def parse_args():
     p.add_argument("--delimiter", default=",", help="Input CSV delimiter (default: ,)")
     p.add_argument("--building", default="007_MRT", help='Building string (default: "007_MRT")')
     p.add_argument("--no-header", action="store_true", help="Do not write header line")
+    p.add_argument(
+        "--empty-placeholder",
+        default="",
+        help="Value to use for empty cells after trimming (default: empty)",
+    )
     return p.parse_args()
 
 def main():
@@ -188,7 +248,7 @@ def main():
     # Prompt user once for Building name
     building = ""
     while not building:
-        building = input("Enter Building name (applies to all files): ").strip()
+        building = _clean_ws(input("Enter Building name (applies to all files): "))
         if not building:
             print("Building name cannot be empty. Please enter a value.")
 
@@ -199,6 +259,7 @@ def main():
         delimiter=args.delimiter,
         building=building,
         write_header=not args.no_header,
+        empty_placeholder=args.empty_placeholder,
     )
 
 if __name__ == "__main__":

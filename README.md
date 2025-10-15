@@ -8,6 +8,7 @@ A simple Python tool to batch-convert raw CSV exports into normalized CSVs for s
 - Prompts once for `Building`, and per output for `DEV_Name`.
 - Writes UTF-8 with BOM for Excel compatibility into `processed/`.
 - Safe write fallback if an output file is locked by another app.
+- Trims whitespace in all fields; leaves empty cells blank by default. Optional placeholder via `--empty-placeholder`.
 
 ## Folder Structure
 - `main.py`
@@ -55,6 +56,7 @@ Each processed CSV contains (header included by default):
 - `--encoding` (default: `utf-8`)
 - `--delimiter` (default: `,`)
 - `--no-header` (omit the header row)
+- `--empty-placeholder` (default: empty) — value used for cells that would otherwise be empty after trimming.
 
 Note: The script currently prompts for `Building` at runtime and ignores the `--building` flag if provided.
 
